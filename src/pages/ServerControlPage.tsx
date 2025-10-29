@@ -158,6 +158,13 @@ const ServerControlPage: React.FC = () => {
   const [loadingMrtg, setLoadingMrtg] = useState(false);
   const [mrtgPeriod, setMrtgPeriod] = useState('daily');  // hourly, daily, weekly, monthly, yearly
 
+  // 变更联系人功能
+  const [showChangeContactDialog, setShowChangeContactDialog] = useState(false);
+  const [contactAdmin, setContactAdmin] = useState('');
+  const [contactTech, setContactTech] = useState('');
+  const [contactBilling, setContactBilling] = useState('');
+  const [loadingChangeContact, setLoadingChangeContact] = useState(false);
+
   // Task 1: 获取服务器列表（只显示活跃服务器）
   const fetchServers = async () => {
     setIsLoading(true);
@@ -652,6 +659,73 @@ const ServerControlPage: React.FC = () => {
     }
   };
 
+  // 变更联系人
+  const handleChangeContact = async () => {
+    if (!selectedServer) return;
+    
+    // 验证至少填写一个联系人
+    if (!contactAdmin && !contactTech && !contactBilling) {
+      showToast({ 
+        type: 'error', 
+        title: '至少需要指定一个联系人' 
+      });
+      return;
+    }
+
+    const confirmed = await showConfirm({
+      title: '确认变更联系人',
+      message: `将为服务器 ${selectedServer.name} (${selectedServer.serviceName}) 变更联系人信息。此操作可能需要验证。`,
+      confirmText: '确认变更',
+      cancelText: '取消'
+    });
+
+    if (!confirmed) return;
+
+    setLoadingChangeContact(true);
+    try {
+      const response = await api.post(`/server-control/${selectedServer.serviceName}/change-contact`, {
+        contactAdmin: contactAdmin || undefined,
+        contactTech: contactTech || undefined,
+        contactBilling: contactBilling || undefined
+      });
+
+      if (response.data.success) {
+        showToast({ 
+          type: 'success', 
+          title: '联系人变更请求已提交',
+          message: response.data.taskId ? `任务ID: ${response.data.taskId}` : undefined
+        });
+        
+        // 清空表单并关闭对话框
+        setContactAdmin('');
+        setContactTech('');
+        setContactBilling('');
+        setShowChangeContactDialog(false);
+      }
+    } catch (error: any) {
+      console.error('变更联系人失败:', error);
+      showToast({ 
+        type: 'error', 
+        title: '变更联系人失败',
+        message: error.response?.data?.error || error.message 
+      });
+    } finally {
+      setLoadingChangeContact(false);
+    }
+  };
+
+  // 打开变更联系人对话框
+  const openChangeContactDialog = () => {
+    if (!selectedServer) return;
+    
+    // 从服务信息中预填联系人（如果有）
+    // 这里可以根据实际API返回的数据进行调整
+    setContactAdmin('');
+    setContactTech('');
+    setContactBilling('');
+    setShowChangeContactDialog(true);
+  };
+
   // IPMI控制台
   const openIPMIConsole = async () => {
     if (!selectedServer) return;
@@ -1105,6 +1179,12 @@ const ServerControlPage: React.FC = () => {
                     className="px-4 py-2 bg-purple-500/10 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/20 transition-all flex items-center gap-2 justify-center">
                     <Cpu className="w-4 h-4" />
                     硬件更换
+                  </button>
+                  <button
+                    onClick={openChangeContactDialog}
+                    className="px-4 py-2 bg-green-500/10 border border-green-500/30 rounded-lg text-green-400 hover:bg-green-500/20 transition-all flex items-center gap-2 justify-center">
+                    <Mail className="w-4 h-4" />
+                    变更联系人
                   </button>
                 </div>
               </div>
@@ -2440,6 +2520,149 @@ const ServerControlPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+              </motion.div>
+            </div>
+          )}
+
+          {/* 变更联系人对话框 */}
+          {showChangeContactDialog && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="cyber-card max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Mail className="w-5 h-5 text-green-400" />
+                    <h3 className="text-xl font-semibold text-cyber-text">
+                      变更服务器联系人
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowChangeContactDialog(false);
+                      setContactAdmin('');
+                      setContactTech('');
+                      setContactBilling('');
+                    }}
+                    className="text-cyber-muted hover:text-cyber-text transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <p className="text-cyber-muted text-sm mb-4">
+                  为 {selectedServer?.name} ({selectedServer?.serviceName}) 变更联系人信息
+                </p>
+
+                <div className="space-y-4">
+                  {/* 管理员联系人 */}
+                  <div>
+                    <label className="block text-cyber-text font-medium mb-2">
+                      管理员联系人 (Contact Admin)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="例如: lp1234567-ovh"
+                      value={contactAdmin}
+                      onChange={(e) => setContactAdmin(e.target.value)}
+                      className="w-full px-4 py-3 bg-cyber-bg border-2 border-cyber-accent/40 rounded-lg text-cyber-text placeholder-cyber-muted focus:border-cyber-accent focus:ring-2 focus:ring-cyber-accent/30 hover:border-cyber-accent/60 transition-all"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
+                      }}
+                    />
+                    <p className="text-xs text-cyber-muted mt-1">OVH账户NIC handle（留空则不修改）</p>
+                  </div>
+
+                  {/* 技术联系人 */}
+                  <div>
+                    <label className="block text-cyber-text font-medium mb-2">
+                      技术联系人 (Contact Tech)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="例如: lp1234567-ovh"
+                      value={contactTech}
+                      onChange={(e) => setContactTech(e.target.value)}
+                      className="w-full px-4 py-3 bg-cyber-bg border-2 border-cyber-accent/40 rounded-lg text-cyber-text placeholder-cyber-muted focus:border-cyber-accent focus:ring-2 focus:ring-cyber-accent/30 hover:border-cyber-accent/60 transition-all"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
+                      }}
+                    />
+                    <p className="text-xs text-cyber-muted mt-1">OVH账户NIC handle（留空则不修改）</p>
+                  </div>
+
+                  {/* 计费联系人 */}
+                  <div>
+                    <label className="block text-cyber-text font-medium mb-2">
+                      计费联系人 (Contact Billing)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="例如: lp1234567-ovh"
+                      value={contactBilling}
+                      onChange={(e) => setContactBilling(e.target.value)}
+                      className="w-full px-4 py-3 bg-cyber-bg border-2 border-cyber-accent/40 rounded-lg text-cyber-text placeholder-cyber-muted focus:border-cyber-accent focus:ring-2 focus:ring-cyber-accent/30 hover:border-cyber-accent/60 transition-all"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)'
+                      }}
+                    />
+                    <p className="text-xs text-cyber-muted mt-1">OVH账户NIC handle（留空则不修改）</p>
+                  </div>
+
+                  {/* 信息提示 */}
+                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                      <div className="text-sm text-green-300">
+                        <p className="font-semibold mb-1">说明：</p>
+                        <ul className="list-disc list-inside space-y-1">
+                          <li>至少需要填写一个联系人信息</li>
+                          <li>使用OVH账户的NIC handle格式</li>
+                          <li>变更后需要通过邮件验证确认</li>
+                          <li>联系人需要是有效的OVH账户</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 警告提示 */}
+                  <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-4">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
+                      <div className="text-sm text-orange-300">
+                        <p className="font-semibold mb-1">重要提示：</p>
+                        <ul className="list-disc list-inside space-y-1">
+                          <li>变更联系人需要双方确认</li>
+                          <li>确认邮件将发送至新旧联系人</li>
+                          <li>完成验证后才会生效</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 提交按钮 */}
+                  <div className="flex justify-end gap-3 mt-6">
+                    <button
+                      onClick={() => {
+                        setShowChangeContactDialog(false);
+                        setContactAdmin('');
+                        setContactTech('');
+                        setContactBilling('');
+                      }}
+                      disabled={loadingChangeContact}
+                      className="px-4 py-2 bg-cyber-grid/50 border border-cyber-accent/30 rounded-lg text-cyber-text hover:bg-cyber-accent/10 disabled:opacity-50">
+                      取消
+                    </button>
+                    <button
+                      onClick={handleChangeContact}
+                      disabled={loadingChangeContact}
+                      className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center gap-2">
+                      {loadingChangeContact && <RefreshCw className="w-4 h-4 animate-spin" />}
+                      提交变更
+                    </button>
+                  </div>
+                </div>
               </motion.div>
             </div>
           )}

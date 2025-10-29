@@ -4232,6 +4232,59 @@ def get_service_info(service_name):
         add_log("ERROR", f"获取服务器 {service_name} 服务信息失败: {str(e)}", "server_control")
 
 # ==============================================
+# 变更联系人 API（Change Contact）
+# ==============================================
+
+@app.route('/api/server-control/<path:service_name>/change-contact', methods=['OPTIONS', 'POST'])
+def change_contact(service_name):
+    """变更服务器联系人（账户、技术、计费联系人）"""
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    
+    client = get_ovh_client()
+    if not client:
+        return jsonify({"success": False, "error": "未配置OVH API密钥"}), 401
+    
+    data = request.get_json()
+    contact_admin = data.get('contactAdmin')  # 管理员联系人
+    contact_tech = data.get('contactTech')    # 技术联系人
+    contact_billing = data.get('contactBilling')  # 计费联系人
+    
+    # 至少需要指定一个联系人
+    if not any([contact_admin, contact_tech, contact_billing]):
+        return jsonify({
+            "success": False, 
+            "error": "至少需要指定一个联系人（管理员、技术或计费）"
+        }), 400
+    
+    try:
+        # 构建请求参数
+        params = {}
+        if contact_admin:
+            params['contactAdmin'] = contact_admin
+        if contact_tech:
+            params['contactTech'] = contact_tech
+        if contact_billing:
+            params['contactBilling'] = contact_billing
+        
+        # 调用OVH API变更联系人
+        result = client.post(f'/dedicated/server/{service_name}/changeContact', **params)
+        
+        add_log("INFO", f"服务器 {service_name} 联系人变更请求已提交: {params}", "server_control")
+        
+        return jsonify({
+            "success": True,
+            "message": "联系人变更请求已提交",
+            "taskId": result.get('id') if isinstance(result, dict) else None,
+            "details": result
+        })
+        
+    except Exception as e:
+        error_msg = str(e)
+        add_log("ERROR", f"变更服务器 {service_name} 联系人失败: {error_msg}", "server_control")
+        return jsonify({"success": False, "error": error_msg}), 500
+
+# ==============================================
 # 维护记录 API（Intervention）
 # ==============================================
 
