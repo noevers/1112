@@ -56,6 +56,7 @@ const MonitorPage = () => {
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
   const [historyData, setHistoryData] = useState<Record<string, HistoryEntry[]>>({});
   const prevSubscriptionsRef = useRef<Subscription[]>([]);
+  const currentSubscriptionsRef = useRef<Subscription[]>([]); // ✅ 保存当前订阅列表，用于在异步回调中检查订阅是否仍然存在
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // 添加订阅表单
@@ -82,6 +83,9 @@ const MonitorPage = () => {
       const response = await api.get('/monitor/subscriptions');
       const newData = response.data as Subscription[];
 
+      // ✅ 先更新 currentSubscriptionsRef，确保异步回调中能检查到最新的订阅列表
+      currentSubscriptionsRef.current = newData;
+      
       // 比对状态变化：从无货->有货 时，如启用自动下单则触发快速下单
       const prev = prevSubscriptionsRef.current || [];
       const prevMap = new Map(prev.map(s => [s.planCode, s]));
@@ -102,20 +106,32 @@ const MonitorPage = () => {
             const firstTimeAvailable = noPrevRecord && isCurrentlyAvailable;
 
             if (becameAvailable || firstTimeAvailable) {
+              // ✅ 在异步请求前保存 planCode，用于后续检查
+              const planCode = sub.planCode;
               api.post('/config-sniper/quick-order', {
-                planCode: sub.planCode,
+                planCode: planCode,
                 datacenter: dc
               })
               .then((res) => {
+                // ✅ 检查订阅是否仍然存在，如果已删除则不显示成功提示
+                const stillExists = currentSubscriptionsRef.current.some(s => s.planCode === planCode);
+                if (!stillExists) {
+                  return; // 订阅已被删除，不显示提示
+                }
                 const ok = (res?.data as any)?.success !== false;
                 if (ok) {
-                  toast.success(`已自动下单：${sub.planCode}（${dc.toUpperCase()}）已加入队列`);
+                  toast.success(`已自动下单：${planCode}（${dc.toUpperCase()}）已加入队列`);
                 } else {
                   // 非成功但无异常时，统一静默，避免干扰
                 }
               })
               .catch((err: any) => {
-                // 对于“指定机房无可定价配置（...）”的 400 错误，静默处理，不弹错误
+                // ✅ 检查订阅是否仍然存在，如果已删除则不显示错误提示
+                const stillExists = currentSubscriptionsRef.current.some(s => s.planCode === planCode);
+                if (!stillExists) {
+                  return; // 订阅已被删除，不显示错误
+                }
+                // 对于"指定机房无可定价配置（...）"的 400 错误，静默处理，不弹错误
                 const status = err?.response?.status;
                 const msg = (err?.response?.data as any)?.error || err?.message || '';
                 const isNoPriceForDc = status === 400 && typeof msg === 'string' && msg.includes('指定机房无可定价配置');
@@ -123,7 +139,7 @@ const MonitorPage = () => {
                   return;
                 }
                 // 其他错误再提示
-                toast.error(`自动下单失败：${sub.planCode}（${dc.toUpperCase()}）`);
+                toast.error(`自动下单失败：${planCode}（${dc.toUpperCase()}）`);
               });
             }
           }
@@ -220,6 +236,10 @@ const MonitorPage = () => {
     try {
       await api.delete(`/monitor/subscriptions/${planCode}`);
       toast.success(`已取消订阅 ${planCode}`);
+      // ✅ 先更新 prevSubscriptionsRef 和 currentSubscriptionsRef，移除被删除的订阅，避免重新加载时误判为状态变化
+      const current = prevSubscriptionsRef.current || [];
+      prevSubscriptionsRef.current = current.filter(s => s.planCode !== planCode);
+      currentSubscriptionsRef.current = currentSubscriptionsRef.current.filter(s => s.planCode !== planCode);
       loadSubscriptions(true);
       loadMonitorStatus();
     } catch (error) {
@@ -243,6 +263,9 @@ const MonitorPage = () => {
     try {
       const response = await api.delete('/monitor/subscriptions/clear');
       toast.success(`已清空 ${response.data.count} 个订阅`);
+      // ✅ 清空所有订阅时，也清空 ref，避免重新加载时误判为状态变化
+      prevSubscriptionsRef.current = [];
+      currentSubscriptionsRef.current = [];
       loadSubscriptions(true);
       loadMonitorStatus();
     } catch (error) {
